@@ -15,6 +15,7 @@ app = Flask(__name__)
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 credentials_info = json.loads(os.environ.get('GOOGLE_CREDENTIALS'))
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_info, scope)
+client = gspread.authorize(credentials)
 
 
 # Abrir la hoja de cálculo (cambiá el nombre si tu planilla tiene otro)
@@ -40,7 +41,7 @@ def webhook():
     return "Reserva guardada", 200
 
 if __name__ == "__main__":
+    print("Iniciando servidor...")
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-print("Iniciando servidor...")
 
 
