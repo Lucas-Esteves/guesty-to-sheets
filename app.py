@@ -1,0 +1,41 @@
+import sys
+print("Iniciando app... Python versión:", sys.version)
+from flask import Flask, request
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import datetime
+
+app = Flask(__name__)
+
+# Autenticación con Google Sheets
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+client = gspread.authorize(credentials)
+
+# Abrir la hoja de cálculo (cambiá el nombre si tu planilla tiene otro)
+sheet = client.open("Prueba").sheet1
+
+@app.route("/", methods=["GET"])
+def home():
+    return "OK"
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.json
+
+    reserva_id = data.get("id")
+    nombre = data.get("guest", {}).get("fullName", "")
+    email = data.get("guest", {}).get("email", "")
+    checkin = data.get("checkInDate", "")
+    checkout = data.get("checkOutDate", "")
+    creado = data.get("createdAt", datetime.datetime.now().isoformat())
+
+    sheet.append_row([reserva_id, nombre, email, checkin, checkout, creado])
+
+    return "Reserva guardada", 200
+
+if __name__ == "__main__":
+    app.run(debug=True)
+print("Iniciando servidor...")
+
+
