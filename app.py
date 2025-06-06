@@ -1,3 +1,4 @@
+# forzar deploy en Render
 import sys
 print("Iniciando app... Python versión:", sys.version)
 from flask import Flask, request
@@ -17,7 +18,7 @@ sheet = client.open("Prueba").sheet1
 
 @app.route("/", methods=["GET"])
 def home():
-    return "OK"
+    return "Running OK"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
