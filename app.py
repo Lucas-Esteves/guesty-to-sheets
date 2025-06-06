@@ -26,10 +26,48 @@ def home():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
-    print("===== NUEVO EVENTO WEBHOOK =====")
-    print(json.dumps(data, indent=2))  # Mostramos la data bien formateada en logs de Render
 
-    return "OK", 200
+    if data.get("eventType") not in ["reservation.new", "reservation.updated"]:
+        return "Evento no procesado", 200
+
+    payload = data.get("payload", {}) or data.get("reservation", {})
+
+    nombre = payload.get("guest", {}).get("fullName", "")
+    telefono = payload.get("guest", {}).get("phone", "")
+    nacionalidad = payload.get("guest", {}).get("nationality", "")
+    plataforma = payload.get("source", "")
+    status = payload.get("status", "")
+    checkin = payload.get("checkInDate", "")
+    checkout = payload.get("checkOutDate", "")
+    hora_checkin = payload.get("checkInTime", "")
+    hora_checkout = payload.get("checkOutTime", "")
+    dias = payload.get("nightsCount", "")
+    departamento = payload.get("listing", {}).get("nickname", "")
+
+    precio = payload.get("money", {}).get("fareAccommodation", "")
+    tarifa_limpieza = payload.get("money", {}).get("fareCleaning", "")
+    comision = payload.get("money", {}).get("commission", "")
+
+    fila = [
+        nombre,
+        departamento,
+        checkin,
+        hora_checkin,
+        checkout,
+        hora_checkout,
+        dias,
+        plataforma,
+        telefono,
+        precio,
+        tarifa_limpieza,
+        comision,
+        status,
+        nacionalidad
+    ]
+
+    sheet.append_row(fila)
+    return "Reserva guardada", 200
+
 
 
 @app.route("/test-sheets", methods=["GET"])
