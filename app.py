@@ -13,10 +13,9 @@ app = Flask(__name__)
 
 # Autenticación con Google Sheets
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
-#client = gspread.authorize(credentials)
 credentials_info = json.loads(os.environ.get('GOOGLE_CREDENTIALS'))
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_info, scope)
+
 
 # Abrir la hoja de cálculo (cambiá el nombre si tu planilla tiene otro)
 sheet = client.open("Prueba").sheet1
