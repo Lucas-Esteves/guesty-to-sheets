@@ -43,11 +43,49 @@ def home():
 def webhook():
     data = request.json
 
-    # Mostrar el JSON recibido en consola, bien indentado
-    import pprint
-    pprint.pprint(data)
+    # Filtrar eventos que no sean de reserva
+    if data.get("eventType") not in ["reservation.new", "reservation.updated"]:
+        return "Evento no procesado", 200
 
-    return "OK", 200
+    reserva = data.get("payload", {})
+
+    nombre = reserva.get("guest", {}).get("fullName", "")
+    telefono = reserva.get("guest", {}).get("phone", "")
+    nacionalidad = reserva.get("guest", {}).get("nationality", "")
+    plataforma = reserva.get("source", "")
+    status = reserva.get("status", "")
+    checkin = reserva.get("checkInDate", "")
+    checkout = reserva.get("checkOutDate", "")
+    hora_checkin = reserva.get("checkInTime", "")
+    hora_checkout = reserva.get("checkOutTime", "")
+    dias = reserva.get("nightsCount", "")
+    departamento = reserva.get("listing", {}).get("nickname", "")
+    
+    precio = reserva.get("financials", {}).get("grossAmount", {}).get("amount", "")
+    tarifa_limpieza = reserva.get("financials", {}).get("cleaningFee", {}).get("amount", "")
+    comision = reserva.get("financials", {}).get("platformCommission", {}).get("amount", "")
+
+    fila = [
+        nombre,
+        departamento,
+        checkin,
+        hora_checkin,
+        checkout,
+        hora_checkout,
+        dias,
+        plataforma,
+        telefono,
+        precio,
+        tarifa_limpieza,
+        comision,
+        status,
+        nacionalidad
+    ]
+
+    sheet.append_row(fila)
+    return "Reserva guardada", 200
+
+
 
 
 if __name__ == "__main__":
