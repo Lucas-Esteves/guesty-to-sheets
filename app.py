@@ -43,10 +43,12 @@ def home():
 def webhook():
     data = request.json
 
-    # Mostrar todo lo que llega en los logs de Render
-    print("📩 Payload recibido:", json.dumps(data, indent=2))
+    # Mostrar el JSON recibido en consola, bien indentado
+    import pprint
+    pprint.pprint(data)
 
     return "OK", 200
+
 
 if __name__ == "__main__":
     print("Iniciando servidor...")
