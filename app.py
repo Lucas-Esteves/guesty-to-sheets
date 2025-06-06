@@ -25,20 +25,28 @@ sheet = client.open("Prueba").sheet1
 def home():
     return "Running OK"
 
+#@app.route("/webhook", methods=["POST"])
+#def webhook():
+ #   data = request.json
+#
+ #   reserva_id = data.get("id")
+  #  nombre = data.get("guest", {}).get("fullName", "")
+   # email = data.get("guest", {}).get("email", "")
+    #checkin = data.get("checkInDate", "")
+    #checkout = data.get("checkOutDate", "")
+    #creado = data.get("createdAt", datetime.datetime.now().isoformat())
+
+    #sheet.append_row([reserva_id, nombre, email, checkin, checkout, creado])
+
+    #return "Reserva guardada", 200
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
 
-    reserva_id = data.get("id")
-    nombre = data.get("guest", {}).get("fullName", "")
-    email = data.get("guest", {}).get("email", "")
-    checkin = data.get("checkInDate", "")
-    checkout = data.get("checkOutDate", "")
-    creado = data.get("createdAt", datetime.datetime.now().isoformat())
+    # Mostrar todo lo que llega en los logs de Render
+    print("📩 Payload recibido:", json.dumps(data, indent=2))
 
-    sheet.append_row([reserva_id, nombre, email, checkin, checkout, creado])
-
-    return "Reserva guardada", 200
+    return "OK", 200
 
 if __name__ == "__main__":
     print("Iniciando servidor...")
