@@ -26,22 +26,11 @@ def home():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
+    print("===== NUEVO EVENTO WEBHOOK =====")
+    print(json.dumps(data, indent=2))  # Mostramos la data bien formateada en logs de Render
 
-    print("========== DATA COMPLETA ==========")
-    print(json.dumps(data, indent=2))  # Esto lo ves en los logs de Render
-    print("===================================")
+    return "OK", 200
 
-    try:
-        reserva = data.get("reservation", {})
-        nombre = reserva.get("guest", {}).get("fullName", "")
-        checkin = reserva.get("checkInDate", "")
-        checkout = reserva.get("checkOutDate", "")
-
-        sheet.append_row([nombre, checkin, checkout])
-        return "Reserva guardada", 200
-    except Exception as e:
-        print(f"❌ ERROR: {str(e)}")
-        return "Error interno", 500
 
 @app.route("/test-sheets", methods=["GET"])
 def test_sheets():
