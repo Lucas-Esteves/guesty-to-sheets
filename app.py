@@ -84,6 +84,7 @@ def webhook():
 
     sheet.append_row(fila)
     return "Reserva guardada", 200
+
 @app.route("/test-sheets", methods=["GET"])
 def test_sheets():
     try:
@@ -92,6 +93,7 @@ def test_sheets():
         return "Conexión exitosa con Google Sheets", 200
     except Exception as e:
         return f"❌ Error: {str(e)}", 500
+
 
 if __name__ == "__main__":
     print("Iniciando servidor...")
