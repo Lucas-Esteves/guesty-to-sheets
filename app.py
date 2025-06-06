@@ -47,7 +47,7 @@ def webhook():
     if data.get("eventType") not in ["reservation.new", "reservation.updated"]:
         return "Evento no procesado", 200
 
-    reserva = data.get("payload", {})
+    reserva = data.get("reservation", {})
 
     nombre = reserva.get("guest", {}).get("fullName", "")
     telefono = reserva.get("guest", {}).get("phone", "")
