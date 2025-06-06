@@ -27,48 +27,21 @@ def home():
 def webhook():
     data = request.json
 
-    # Aceptamos solo eventos de reservas
-    if data.get("event") not in ["reservation.created", "reservation.updated", "reservation.new"]:
-        return "Evento no procesado", 200
+    print("========== DATA COMPLETA ==========")
+    print(json.dumps(data, indent=2))  # Esto lo ves en los logs de Render
+    print("===================================")
 
-    reserva = data.get("reservation", {})
+    try:
+        reserva = data.get("reservation", {})
+        nombre = reserva.get("guest", {}).get("fullName", "")
+        checkin = reserva.get("checkInDate", "")
+        checkout = reserva.get("checkOutDate", "")
 
-    nombre = reserva.get("guest", {}).get("fullName", "")
-    telefono = reserva.get("guest", {}).get("phone", "")
-    nacionalidad = reserva.get("guest", {}).get("nationality", "")
-    plataforma = reserva.get("source", "")
-    status = reserva.get("status", "")
-    checkin = reserva.get("checkInDateLocalized", "")
-    hora_checkin = reserva.get("plannedArrival", "")
-    checkout = reserva.get("checkOutDateLocalized", "")
-    hora_checkout = reserva.get("plannedDeparture", "")
-    dias = reserva.get("nightsCount", "")
-    departamento = reserva.get("listing", {}).get("nickname", "")
-
-    money = reserva.get("money", {})
-    precio = money.get("subTotalPrice", "")
-    tarifa_limpieza = money.get("fareCleaning", "")
-    comision = money.get("hostServiceFee", "")
-
-    fila = [
-        nombre,
-        departamento,
-        checkin,
-        hora_checkin,
-        checkout,
-        hora_checkout,
-        dias,
-        plataforma,
-        telefono,
-        precio,
-        tarifa_limpieza,
-        comision,
-        status,
-        nacionalidad
-    ]
-
-    sheet.append_row(fila)
-    return "Reserva guardada", 200
+        sheet.append_row([nombre, checkin, checkout])
+        return "Reserva guardada", 200
+    except Exception as e:
+        print(f"❌ ERROR: {str(e)}")
+        return "Error interno", 500
 
 @app.route("/test-sheets", methods=["GET"])
 def test_sheets():
