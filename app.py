@@ -5,8 +5,10 @@ from flask import Flask, request
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import datetime
+import os
 
 app = Flask(__name__)
+
 
 # Autenticación con Google Sheets
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -36,7 +38,7 @@ def webhook():
     return "Reserva guardada", 200
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 print("Iniciando servidor...")
 
 
