@@ -1,0 +1,17 @@
+# Ignorar el archivo de variables de entorno local
+.env
+
+# Ignorar la clave de credenciales de Google Sheets (¡MUY IMPORTANTE!)
+credentials.json
+
+# Ignorar la carpeta del entorno virtual (si alguna vez la creas)
+venv/
+
+# Ignorar cualquier archivo .pyc generado por Python
+*.pyc
+
+# Ignorar cualquier carpeta __pycache__ generada por Python
+__pycache__/
+
+# Ignorar cualquier archivo generado por pruebas (si los tuvieras)
+test_*.py
