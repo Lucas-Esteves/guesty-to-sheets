@@ -4,3 +4,5 @@ google-api-python-client
 google-auth-oauthlib
 python-dotenv
 gunicorn
+psycopg2-binary
+SQLAlchemy
