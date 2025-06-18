@@ -190,7 +190,7 @@ def update_google_sheets(data):
         # Asegurar que la fila de encabezado exista antes de procesar datos
         ensure_header_row_exists_global()
 
-        webhook_topic = data.get("topic") # Obtener el tipo de evento del webhook (reservation.new, reservation.updated)
+        webhook_topic = data.get("event") # Corregido para obtener el topic del campo 'event' # Obtener el tipo de evento del webhook (reservation.new, reservation.updated)
         reservation_data = data.get("reservation", {})
 
         if not reservation_data:
