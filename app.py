@@ -141,8 +141,7 @@ def update_reservation_in_db(reservation_id, new_sheet_row_number):
         print(f"❌ Error actualizando reserva en la DB '{reservation_id}': {e}")
 
 # --- Función para asegurar la fila de encabezado en Google Sheets ---
-# IMPORTANTE: Se moverá la llamada a esta función al bloque 'if __name__ == "__main__":'
-# para que se ejecute una sola vez al inicio de la aplicación, no en cada webhook.
+# Esta función DEBE llamarse una sola vez al inicio de la aplicación para evitar llamadas repetitivas a la API.
 def ensure_header_row_exists_global():
     if sheets_service is None:
         print("🚫 Servicio de Google Sheets no inicializado. No se puede verificar/añadir encabezado.")
@@ -180,7 +179,8 @@ def ensure_header_row_exists_global():
 
 # --- Función principal para actualizar Google Sheets (AHORA USANDO LA DB) ---
 def update_google_sheets(data):
-    if sheets_service === None: # Error corregido de triple igual a doble igual
+    # ¡CORRECCIÓN CLAVE AQUÍ! Cambiado '===' a '=='
+    if sheets_service == None : 
         print("🚫 Servicio de Google Sheets no inicializado. No se puede actualizar.")
         return {"message": "Server error: Google Sheets service not ready"}, 500
 
@@ -373,4 +373,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     # Para desarrollo local, puedes activar debug=True
     app.run(debug=os.environ.get("FLASK_DEBUG", "False") == "True", host="0.0.0.0", port=port)
-
