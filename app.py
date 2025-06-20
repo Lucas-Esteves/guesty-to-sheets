@@ -179,7 +179,6 @@ def ensure_header_row_exists_global():
 
 # --- Función principal para actualizar Google Sheets (AHORA USANDO LA DB) ---
 def update_google_sheets(data):
-    # ¡CORRECCIÓN CLAVE AQUÍ! Cambiado '===' a '=='
     if sheets_service == None : 
         print("🚫 Servicio de Google Sheets no inicializado. No se puede actualizar.")
         return {"message": "Server error: Google Sheets service not ready"}, 500
@@ -339,10 +338,17 @@ def memdebug():
         # 'file=None' hace que retorne la lista en lugar de imprimirla.
         top_objects = objgraph.show_most_common_types(limit=50, file=None)
         
-        # Formatea la salida como HTML básico para ser legible en el navegador
+        # --- CORRECCIÓN AQUÍ ---
         output = ["<!DOCTYPE html><html><head><title>Memoria de la App</title></head><body><h1>Top 50 objetos en memoria:</h1>", "<pre>"]
-        for obj_type, count in top_objects:
-            output.append(f"{obj_type}: {count}")
+        
+        if top_objects is None:
+            output.append("objgraph.show_most_common_types devolvió 'None'. Esto podría indicar un problema de entorno o acceso a la memoria.")
+        elif not top_objects: # Maneja el caso de lista vacía
+            output.append("objgraph no encontró objetos o la lista está vacía.")
+        else:
+            for obj_type, count in top_objects:
+                output.append(f"{obj_type}: {count}")
+        
         output.append("</pre></body></html>")
 
         response = make_response("".join(output))
@@ -373,3 +379,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     # Para desarrollo local, puedes activar debug=True
     app.run(debug=os.environ.get("FLASK_DEBUG", "False") == "True", host="0.0.0.0", port=port)
+
