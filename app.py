@@ -1,21 +1,18 @@
 import os
 import json
 import base64
-from flask import Flask, request, jsonify, make_response # Importa make_response para la nueva ruta /memdebug
+from flask import Flask, request, jsonify, make_response
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from dotenv import load_dotenv # Para cargar variables de entorno en local, si aplica
+from dotenv import load_dotenv
 
 # --- Importaciones de SQLAlchemy para la Base de Datos ---
 from sqlalchemy import create_engine, Column, String, Integer
-from sqlalchemy.ext.declarative import declarative_base # Corregido typo en 'declarative_base'
-from sqlalchemy.orm import sessionmaker, scoped_session # IMPORTANTE: Se añade scoped_session aquí
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, scoped_session
 
-# --- Importaciones para el Debug de Memoria ---
-import objgraph # <-- NUEVA IMPORTACIÓN PARA LA DEPURACIÓN DE MEMORIA
-
-# Cargar variables de entorno al inicio (esencial para desarrollo local y puede usarse en Render)
+# Cargar variables de entorno al inicio (esencial para desarrollo local y Render)
 load_dotenv()
 
 app = Flask(__name__)
@@ -26,7 +23,6 @@ SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1UqW44Uu1r44mDX6_UBn0MSox9cIiW4E6Z
 RANGE_NAME = os.getenv("RANGE_NAME", 'test')
 
 # Define el orden de las columnas en tu Google Sheet
-# ¡Asegúrate de que tu hoja de cálculo tenga estas columnas y en este orden exacto!
 field_names = [
     "event", "eventId", "messageId", "reservation_id", "accountId", "guestId", "listingId",
     "checkIn", "checkOut", "numberOfGuests", "platform", "reservationStatus", "guestFirstName",
@@ -78,12 +74,12 @@ class ReservationIndex(Base):
 # Crear el motor de la base de datos
 engine = create_engine(DATABASE_URL)
 
-# --- CAMBIO CLAVE PARA GESTIÓN DE MEMORIA (SQLAlchemy Session) ---
+# --- Gestión de Sesiones de SQLAlchemy (Mejora para estabilidad de memoria) ---
 # Usa scoped_session. Esto asegura que cada "hilo" de trabajo (cada solicitud HTTP)
 # obtenga su propia sesión de base de datos y que se gestione de forma segura.
 Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
 
-# --- CAMBIO CLAVE PARA GESTIÓN DE MEMORIA (Cierre de SQLAlchemy Session) ---
+# --- Cierre de Sesiones de SQLAlchemy (Mejora para estabilidad de memoria) ---
 # Este decorador de Flask asegura que la sesión de la base de datos se elimine
 # automáticamente al final de cada solicitud HTTP, liberando recursos de memoria.
 @app.teardown_appcontext
@@ -91,7 +87,7 @@ def remove_db_session(exception=None):
     Session.remove()
     # print("INFO: SQLAlchemy Session removed for this request.") # Descomentar para depuración si es necesario
 
-# --- Funciones Auxiliares para la Base de Datos (Simplificadas gracias a scoped_session) ---
+# --- Funciones Auxiliares para la Base de Datos ---
 
 # Función para asegurar que la tabla 'reservation_index' exista en la DB
 # Esta función DEBE llamarse una sola vez al inicio de la aplicación.
@@ -103,8 +99,8 @@ def create_db_tables():
         print(f"❌ Error al intentar crear/verificar tabla de la DB: {e}. Esto podría causar problemas.")
 
 # Busca un reservation_id en la base de datos y devuelve su número de fila en Sheets
-# Ya no necesitas 'session = Session()' y 'session.close()', scoped_session lo maneja.
 def find_reservation_row_in_db(reservation_id):
+    # Ya no necesitas 'session = Session()' y 'session.close()', scoped_session lo maneja.
     try:
         record = Session().query(ReservationIndex).filter_by(reservation_id=str(reservation_id)).first()
         if record:
@@ -141,7 +137,7 @@ def update_reservation_in_db(reservation_id, new_sheet_row_number):
         print(f"❌ Error actualizando reserva en la DB '{reservation_id}': {e}")
 
 # --- Función para asegurar la fila de encabezado en Google Sheets ---
-# Esta función DEBE llamarse una sola vez al inicio de la aplicación para evitar llamadas repetitivas a la API.
+# Esta función se llama UNA SOLA VEZ al inicio de la aplicación.
 def ensure_header_row_exists_global():
     if sheets_service is None:
         print("🚫 Servicio de Google Sheets no inicializado. No se puede verificar/añadir encabezado.")
@@ -179,16 +175,13 @@ def ensure_header_row_exists_global():
 
 # --- Función principal para actualizar Google Sheets (AHORA USANDO LA DB) ---
 def update_google_sheets(data):
-    if sheets_service == None : 
+    if sheets_service == None :
         print("🚫 Servicio de Google Sheets no inicializado. No se puede actualizar.")
         return {"message": "Server error: Google Sheets service not ready"}, 500
 
     sheet_instance = sheets_service.spreadsheets()
 
     try:
-        # IMPORTANTE: La llamada a ensure_header_row_exists_global() se ELIMINÓ de aquí.
-        # Ahora se ejecuta UNA SOLA VEZ al inicio de la aplicación en el bloque if __name__ == "__main__":
-
         webhook_topic = data.get("event")
         reservation_data = data.get("reservation", {})
 
@@ -220,14 +213,13 @@ def update_google_sheets(data):
 
         guest_data = reservation_data.get("guest", {})
         guest_first_name = guest_data.get("firstName", "")
-        # guest_last_name: intenta obtenerlo directamente, si no, del fullName.
         guest_last_name = guest_data.get("lastName") or (guest_data.get("fullName", "").split()[-1] if guest_data.get("fullName") else "")
 
         money_data = reservation_data.get("money", {})
         total_amount = money_data.get("subTotalPrice", 0)
         cleaning_fee = money_data.get("fareCleaning", 0)
         service_fee = money_data.get("hostServiceFee", 0)
-        security_deposit = 0 # Mantener en 0 si no se extrae de Guesty
+        security_deposit = 0
 
         listing_data = reservation_data.get("listing", {})
         listing_name = listing_data.get("nickname", "") or listing_data.get("name", "")
@@ -328,35 +320,6 @@ def webhook():
     # Llama a la función de actualización unificada
     return update_google_sheets(data)
 
-# --- NUEVA RUTA: La "Puerta Secreta" para depuración de memoria ---
-# Accede a esta ruta en tu navegador (ej. https://tu-app-en-render.onrender.com/memdebug)
-# para ver el uso de memoria en tiempo real.
-@app.route("/memdebug")
-def memdebug():
-    try:
-        # Genera una lista de los 50 tipos de objetos más comunes en memoria
-        # 'file=None' hace que retorne la lista en lugar de imprimirla.
-        top_objects = objgraph.show_most_common_types(limit=50, file=None)
-        
-        # --- CORRECCIÓN AQUÍ ---
-        output = ["<!DOCTYPE html><html><head><title>Memoria de la App</title></head><body><h1>Top 50 objetos en memoria:</h1>", "<pre>"]
-        
-        if top_objects is None:
-            output.append("objgraph.show_most_common_types devolvió 'None'. Esto podría indicar un problema de entorno o acceso a la memoria.")
-        elif not top_objects: # Maneja el caso de lista vacía
-            output.append("objgraph no encontró objetos o la lista está vacía.")
-        else:
-            for obj_type, count in top_objects:
-                output.append(f"{obj_type}: {count}")
-        
-        output.append("</pre></body></html>")
-
-        response = make_response("".join(output))
-        response.headers["Content-Type"] = "text/html"
-        return response
-    except Exception as e:
-        return f"Error al generar el informe de memoria: {e}", 500
-
 # --- Punto de entrada principal para Flask ---
 if __name__ == "__main__":
     # Importante: `create_db_tables()` y `ensure_header_row_exists_global()`
@@ -367,8 +330,7 @@ if __name__ == "__main__":
     
     create_db_tables() # Llama a esta función para asegurar que la tabla de la DB exista
 
-    # --- CAMBIO CLAVE AQUÍ: Llamar a ensure_header_row_exists_global UNA SOLA VEZ ---
-    # Esto evita llamadas repetitivas a la API de Google Sheets en cada webhook.
+    # --- Llamar a ensure_header_row_exists_global UNA SOLA VEZ al inicio ---
     try:
         ensure_header_row_exists_global() 
     except Exception as e:
@@ -379,4 +341,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     # Para desarrollo local, puedes activar debug=True
     app.run(debug=os.environ.get("FLASK_DEBUG", "False") == "True", host="0.0.0.0", port=port)
-
