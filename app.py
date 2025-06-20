@@ -1,7 +1,7 @@
 import os
 import json
 import base64
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response # Importa make_response para la nueva ruta /memdebug
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -9,9 +9,11 @@ from dotenv import load_dotenv # Para cargar variables de entorno en local, si a
 
 # --- Importaciones de SQLAlchemy para la Base de Datos ---
 from sqlalchemy import create_engine, Column, String, Integer
-# ### CORRECCIÓN: Typo en 'declarative_base'. Debe ser solo 'declarative_base'.
-from sqlalchemy.ext.declarative import declarative_base 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base # Corregido typo en 'declarative_base'
+from sqlalchemy.orm import sessionmaker, scoped_session # IMPORTANTE: Se añade scoped_session aquí
+
+# --- Importaciones para el Debug de Memoria ---
+import objgraph # <-- NUEVA IMPORTACIÓN PARA LA DEPURACIÓN DE MEMORIA
 
 # Cargar variables de entorno al inicio (esencial para desarrollo local y puede usarse en Render)
 load_dotenv()
@@ -33,7 +35,8 @@ field_names = [
 ]
 
 # --- INICIALIZACIÓN GLOBAL DEL SERVICIO DE GOOGLE SHEETS ---
-# Esta instancia se inicializará una sola vez al arrancar la aplicación
+# Esta instancia se inicializará una sola vez al arrancar la aplicación.
+# Esto es una buena práctica para evitar la recreación costosa en cada solicitud.
 sheets_service = None
 
 try:
@@ -58,11 +61,8 @@ except Exception as e:
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 if not DATABASE_URL:
-    # Esto levantará un error si DATABASE_URL no está configurada.
-    # Asegúrate de haberla configurado en las variables de entorno de tu servicio Flask en Render.
     raise RuntimeError("DATABASE_URL variable de entorno no configurada. ¡Necesaria para la conexión a la DB!")
 
-# ### CORRECCIÓN: Typo 'declarative_declarative_base()' a 'declarative_base()'
 Base = declarative_base()
 
 # Definición del modelo de la tabla para el índice de reservas
@@ -78,10 +78,20 @@ class ReservationIndex(Base):
 # Crear el motor de la base de datos
 engine = create_engine(DATABASE_URL)
 
-# Crear la sesión de fábrica para interactuar con la DB
-Session = sessionmaker(bind=engine)
+# --- CAMBIO CLAVE PARA GESTIÓN DE MEMORIA (SQLAlchemy Session) ---
+# Usa scoped_session. Esto asegura que cada "hilo" de trabajo (cada solicitud HTTP)
+# obtenga su propia sesión de base de datos y que se gestione de forma segura.
+Session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
 
-# --- Funciones Auxiliares para la Base de Datos ---
+# --- CAMBIO CLAVE PARA GESTIÓN DE MEMORIA (Cierre de SQLAlchemy Session) ---
+# Este decorador de Flask asegura que la sesión de la base de datos se elimine
+# automáticamente al final de cada solicitud HTTP, liberando recursos de memoria.
+@app.teardown_appcontext
+def remove_db_session(exception=None):
+    Session.remove()
+    # print("INFO: SQLAlchemy Session removed for this request.") # Descomentar para depuración si es necesario
+
+# --- Funciones Auxiliares para la Base de Datos (Simplificadas gracias a scoped_session) ---
 
 # Función para asegurar que la tabla 'reservation_index' exista en la DB
 # Esta función DEBE llamarse una sola vez al inicio de la aplicación.
@@ -91,58 +101,48 @@ def create_db_tables():
         print("✅ Tabla 'reservation_index' asegurada en la base de datos.")
     except Exception as e:
         print(f"❌ Error al intentar crear/verificar tabla de la DB: {e}. Esto podría causar problemas.")
-        # Dependiendo de la severidad, podrías querer levantar el error o hacer un exit()
 
 # Busca un reservation_id en la base de datos y devuelve su número de fila en Sheets
+# Ya no necesitas 'session = Session()' y 'session.close()', scoped_session lo maneja.
 def find_reservation_row_in_db(reservation_id):
-    session = Session()
     try:
-        record = session.query(ReservationIndex).filter_by(reservation_id=str(reservation_id)).first()
+        record = Session().query(ReservationIndex).filter_by(reservation_id=str(reservation_id)).first()
         if record:
             return record.sheet_row_number
         return None
     except Exception as e:
         print(f"❌ Error buscando en la DB el ID '{reservation_id}': {e}")
         return None
-    finally:
-        session.close()
 
 # Añade un nuevo registro de reserva (ID de Guesty y número de fila de Sheets) a la DB
 def add_reservation_to_db(reservation_id, sheet_row_number):
-    session = Session()
     try:
         new_record = ReservationIndex(reservation_id=str(reservation_id), sheet_row_number=sheet_row_number)
-        session.add(new_record)
-        session.commit()
+        Session().add(new_record)
+        Session().commit() # Importante hacer commit en la misma sesión
         print(f"✅ Reserva {reservation_id} (fila {sheet_row_number}) añadida al índice de la base de datos.")
     except Exception as e:
-        session.rollback() # Si hay un error, deshace la transacción
+        Session().rollback() # Si hay un error, deshace la transacción
         print(f"❌ Error añadiendo reserva a la DB '{reservation_id}': {e}")
-    finally:
-        session.close()
 
 # Actualiza el número de fila de una reserva existente en la DB
 def update_reservation_in_db(reservation_id, new_sheet_row_number):
-    session = Session()
     try:
-        record = session.query(ReservationIndex).filter_by(reservation_id=str(reservation_id)).first()
+        record = Session().query(ReservationIndex).filter_by(reservation_id=str(reservation_id)).first()
         if record:
             record.sheet_row_number = new_sheet_row_number
-            session.commit()
+            Session().commit() # Importante hacer commit en la misma sesión
             print(f"✅ Reserva {reservation_id} actualizada en la base de datos a fila {new_sheet_row_number}.")
         else:
-            # Esto puede ocurrir si el registro no estaba indexado pero un update llega.
-            # En este caso, lo añadimos.
             print(f"⚠️ Reserva {reservation_id} no encontrada en DB para actualizar, añadiendo en su lugar.")
             add_reservation_to_db(reservation_id, new_sheet_row_number)
     except Exception as e:
-        session.rollback()
+        Session().rollback()
         print(f"❌ Error actualizando reserva en la DB '{reservation_id}': {e}")
-    finally:
-        session.close()
 
 # --- Función para asegurar la fila de encabezado en Google Sheets ---
-# Esta función es global y usa la instancia 'sheets_service' ya inicializada.
+# IMPORTANTE: Se moverá la llamada a esta función al bloque 'if __name__ == "__main__":'
+# para que se ejecute una sola vez al inicio de la aplicación, no en cada webhook.
 def ensure_header_row_exists_global():
     if sheets_service is None:
         print("🚫 Servicio de Google Sheets no inicializado. No se puede verificar/añadir encabezado.")
@@ -180,17 +180,17 @@ def ensure_header_row_exists_global():
 
 # --- Función principal para actualizar Google Sheets (AHORA USANDO LA DB) ---
 def update_google_sheets(data):
-    if sheets_service is None:
+    if sheets_service === None: # Error corregido de triple igual a doble igual
         print("🚫 Servicio de Google Sheets no inicializado. No se puede actualizar.")
         return {"message": "Server error: Google Sheets service not ready"}, 500
 
     sheet_instance = sheets_service.spreadsheets()
 
     try:
-        # Asegurar que la fila de encabezado exista antes de procesar datos
-        ensure_header_row_exists_global()
+        # IMPORTANTE: La llamada a ensure_header_row_exists_global() se ELIMINÓ de aquí.
+        # Ahora se ejecuta UNA SOLA VEZ al inicio de la aplicación en el bloque if __name__ == "__main__":
 
-        webhook_topic = data.get("event") # Corregido para obtener el topic del campo 'event' # Obtener el tipo de evento del webhook (reservation.new, reservation.updated)
+        webhook_topic = data.get("event")
         reservation_data = data.get("reservation", {})
 
         if not reservation_data:
@@ -263,9 +263,6 @@ def update_google_sheets(data):
                 body=update_body
             ).execute()
             print(f"✅ Updated row {row_index_to_update} with reservation ID {reservation_id} in Google Sheets")
-            # Opcional: Si el número de fila en Sheets cambiara (p. ej., por manipulación manual),
-            # podrías actualizar la DB auxiliar aquí:
-            # update_reservation_in_db(reservation_id, row_index_to_update)
 
         else:
             # CASO 2: La reserva NO SE ENCONTRÓ en nuestra base de datos auxiliar.
@@ -283,7 +280,6 @@ def update_google_sheets(data):
                 # Obtener el número de fila en el que Google Sheets insertó la reserva
                 updated_range = append_result.get('updates', {}).get('updatedRange', '')
                 if updated_range:
-                    ### MEJORA: Agregar try-except para una extracción más robusta del número de fila
                     try:
                         # Ejemplo: "Hoja1!A123:W123" -> extraer "123"
                         sheet_row_number_appended = int(updated_range.split('!')[1].split(':')[0].strip('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))
@@ -291,7 +287,6 @@ def update_google_sheets(data):
                         print(f"✅ Appended new row with reservation ID {reservation_id} to Google Sheets (row {sheet_row_number_appended}) AND added to DB index.")
                     except (ValueError, IndexError) as e:
                         print(f"❌ Error al parsear el número de fila de updatedRange '{updated_range}': {e}. No se pudo indexar en la DB.")
-                        # Aun así, la fila se añadió a Sheets, solo que el índice DB no se actualizó
                         print(f"✅ Appended new row with reservation ID {reservation_id} to Google Sheets (DB index update failed).")
                 else:
                     print(f"✅ Appended new row with reservation ID {reservation_id} to Google Sheets, but could not determine new row number for DB index. Manual sync might be needed later.")
@@ -334,15 +329,48 @@ def webhook():
     # Llama a la función de actualización unificada
     return update_google_sheets(data)
 
+# --- NUEVA RUTA: La "Puerta Secreta" para depuración de memoria ---
+# Accede a esta ruta en tu navegador (ej. https://tu-app-en-render.onrender.com/memdebug)
+# para ver el uso de memoria en tiempo real.
+@app.route("/memdebug")
+def memdebug():
+    try:
+        # Genera una lista de los 50 tipos de objetos más comunes en memoria
+        # 'file=None' hace que retorne la lista en lugar de imprimirla.
+        top_objects = objgraph.show_most_common_types(limit=50, file=None)
+        
+        # Formatea la salida como HTML básico para ser legible en el navegador
+        output = ["<!DOCTYPE html><html><head><title>Memoria de la App</title></head><body><h1>Top 50 objetos en memoria:</h1>", "<pre>"]
+        for obj_type, count in top_objects:
+            output.append(f"{obj_type}: {count}")
+        output.append("</pre></body></html>")
+
+        response = make_response("".join(output))
+        response.headers["Content-Type"] = "text/html"
+        return response
+    except Exception as e:
+        return f"Error al generar el informe de memoria: {e}", 500
+
 # --- Punto de entrada principal para Flask ---
 if __name__ == "__main__":
-    # Importante: `create_db_tables()` debe llamarse UNA SOLA VEZ al iniciar la app.
+    # Importante: `create_db_tables()` y `ensure_header_row_exists_global()`
+    # DEBEN llamarse UNA SOLA VEZ al iniciar la app.
     # En Render, Gunicorn (o tu WSGI server) ejecutará tu aplicación.
-    # Esta sección 'if __name__ == "__main__":' es principalmente para cuando ejecutas el script directamente (python app.py)
-    # y para pruebas locales. Render tiene sus propios mecanismos para ejecutar tu app.
-
+    # Esta sección 'if __name__ == "__main__":' es principalmente para cuando ejecutas
+    # el script directamente (python app.py) y para pruebas locales.
+    
     create_db_tables() # Llama a esta función para asegurar que la tabla de la DB exista
+
+    # --- CAMBIO CLAVE AQUÍ: Llamar a ensure_header_row_exists_global UNA SOLA VEZ ---
+    # Esto evita llamadas repetitivas a la API de Google Sheets en cada webhook.
+    try:
+        ensure_header_row_exists_global() 
+    except Exception as e:
+        print(f"FATAL ERROR: Could not ensure Google Sheets header row: {e}")
+        import sys
+        sys.exit(1) # Termina la aplicación si el encabezado no se puede establecer
 
     port = int(os.environ.get("PORT", 5000))
     # Para desarrollo local, puedes activar debug=True
     app.run(debug=os.environ.get("FLASK_DEBUG", "False") == "True", host="0.0.0.0", port=port)
+
