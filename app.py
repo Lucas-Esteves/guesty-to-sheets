@@ -22,9 +22,12 @@ app = Flask(__name__)
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1UqW44Uu1r44mDX6_UBn0MSox9cIiW4E6Zmm7xQ9AWm8")
 RANGE_NAME = os.getenv("RANGE_NAME", 'test')
 
+# --- CAMBIO CLAVE 1: Añadir "conversationId" a la lista de cabeceras en la posición deseada (Columna H) ---
 # Define el orden de las columnas en tu Google Sheet
+# ¡Asegúrate de que tu hoja de cálculo tenga estas columnas y en este orden exacto!
 field_names = [
     "event", "eventId", "messageId", "reservation_id", "accountId", "guestId", "listingId",
+    "conversationId", # <-- AÑADIDO AQUÍ (Esto lo hará la columna H en la hoja)
     "checkIn", "checkOut", "numberOfGuests", "platform", "reservationStatus", "guestFirstName",
     "guestLastName", "totalAmount", "cleaningFee", "serviceFee", "securityDeposit",
     "listing_name", "listing_city", "guest_email", "guest_phone", "nights"
@@ -195,12 +198,12 @@ def update_google_sheets(data):
             return {"message": "Reservation ID is missing"}, 400
 
         # --- Extracción de datos detallada desde el webhook de Guesty ---
-        # Asegúrate de que el orden de estos campos coincida exactamente con 'field_names'
-        # y las columnas en tu Google Sheet.
         event = data.get("event", "")
         meta = data.get("meta", {})
         eventId = meta.get("eventId", "")
         messageId = meta.get("messageId", "")
+        # --- CAMBIO CLAVE 2: Extraer 'conversationId' del webhook data (nivel superior) ---
+        conversation_id = data.get("conversationId", "") # Extraer conversationId
 
         account_id = reservation_data.get("accountId", "")
         guest_id = reservation_data.get("guestId", "")
@@ -230,9 +233,11 @@ def update_google_sheets(data):
 
         nights = reservation_data.get("nightsCount", 0)
 
+        # --- CAMBIO CLAVE 3: Incluir 'conversation_id' en la fila de datos en la misma posición ---
         # Preparar la fila de datos en el ORDEN DEFINIDO por 'field_names'
         row_data = [
             event, eventId, messageId, reservation_id, account_id, guest_id, listing_id,
+            conversation_id, # <-- AÑADIDO AQUÍ, correspondiendo a la nueva columna H
             check_in, check_out, number_of_guests, platform, status, guest_first_name,
             guest_last_name, total_amount, cleaning_fee, service_fee, security_deposit,
             listing_name, listing_city, guest_email, guest_phone, nights
@@ -243,8 +248,6 @@ def update_google_sheets(data):
 
         # --- Lógica CONDICIONAL de acción basada en si se encontró y el 'topic' del webhook ---
         if row_index_to_update:
-            # CASO 1: La reserva YA EXISTE en nuestra base de datos (y, por lo tanto, en Google Sheets)
-            # Siempre la actualizamos en Google Sheets, sin importar el topic.
             range_to_update = f"{RANGE_NAME}!A{row_index_to_update}:{chr(64 + len(field_names))}{row_index_to_update}"
             update_body = {"values": [row_data]}
             sheet_instance.values().update(
@@ -256,25 +259,20 @@ def update_google_sheets(data):
             print(f"✅ Updated row {row_index_to_update} with reservation ID {reservation_id} in Google Sheets")
 
         else:
-            # CASO 2: La reserva NO SE ENCONTRÓ en nuestra base de datos auxiliar.
-            # Aquí el 'topic' del webhook es CRUCIAL para evitar duplicados de reservas antiguas.
             if webhook_topic == "reservation.new":
-                # Si es una reserva GENUINAMENTE NUEVA, la agregamos a Sheets Y a nuestra DB auxiliar.
                 body = {"values": [row_data]}
                 append_result = sheet_instance.values().append(
                     spreadsheetId=SPREADSHEET_ID,
-                    range=RANGE_NAME, # Append agrega al final de la hoja activa
+                    range=RANGE_NAME,
                     valueInputOption="RAW",
                     body=body
                 ).execute()
                 
-                # Obtener el número de fila en el que Google Sheets insertó la reserva
                 updated_range = append_result.get('updates', {}).get('updatedRange', '')
                 if updated_range:
                     try:
-                        # Ejemplo: "Hoja1!A123:W123" -> extraer "123"
                         sheet_row_number_appended = int(updated_range.split('!')[1].split(':')[0].strip('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))
-                        add_reservation_to_db(reservation_id, sheet_row_number_appended) # ¡Añade el ID y la fila a tu índice de DB!
+                        add_reservation_to_db(reservation_id, sheet_row_number_appended)
                         print(f"✅ Appended new row with reservation ID {reservation_id} to Google Sheets (row {sheet_row_number_appended}) AND added to DB index.")
                     except (ValueError, IndexError) as e:
                         print(f"❌ Error al parsear el número de fila de updatedRange '{updated_range}': {e}. No se pudo indexar en la DB.")
@@ -283,15 +281,10 @@ def update_google_sheets(data):
                     print(f"✅ Appended new row with reservation ID {reservation_id} to Google Sheets, but could not determine new row number for DB index. Manual sync might be needed later.")
 
             elif webhook_topic == "reservation.updated":
-                # Si es una ACTUALIZACIÓN de una reserva que NO encontramos en nuestra DB:
-                # Esto significa que es una reserva "vieja" (existía en Guesty antes de que empezaras a usar este sistema/Excel).
-                # La IGNORAMOS para evitar duplicados no deseados en tu hoja.
                 print(f"⚠️ Received 'reservation.updated' for ID {reservation_id} which was not found in DB/Sheets. Ignoring to prevent duplicates of old reservations.")
-                # Se devuelve un 200 OK porque el webhook fue procesado intencionalmente (ignorando la acción de añadir).
                 return {"message": f"Reserva {reservation_id} (updated) no encontrada en la hoja, ignorada para evitar duplicados."}, 200
 
             else:
-                # Otros tipos de topic de webhook que no quieres manejar para añadir/actualizar
                 print(f"ℹ️ Received webhook with unexpected topic '{webhook_topic}' for ID {reservation_id}. Ignoring.")
                 return {"message": f"Webhook topic '{webhook_topic}' for ID {reservation_id} ignored."}, 200
 
@@ -312,32 +305,23 @@ def webhook():
 
     webhook_event_type = data.get("event") 
     
-    # Verifica que el evento sea de un tipo que queremos procesar para reservas
     if webhook_event_type not in ["reservation.new", "reservation.updated"]:
         print(f"Evento no procesado: {webhook_event_type}. Solo procesamos 'reservation.new' y 'reservation.updated'.")
         return jsonify({"message": f"Evento '{webhook_event_type}' no procesado"}), 200
 
-    # Llama a la función de actualización unificada
     return update_google_sheets(data)
 
 # --- Punto de entrada principal para Flask ---
 if __name__ == "__main__":
-    # Importante: `create_db_tables()` y `ensure_header_row_exists_global()`
-    # DEBEN llamarse UNA SOLA VEZ al iniciar la app.
-    # En Render, Gunicorn (o tu WSGI server) ejecutará tu aplicación.
-    # Esta sección 'if __name__ == "__main__":' es principalmente para cuando ejecutas
-    # el script directamente (python app.py) y para pruebas locales.
-    
-    create_db_tables() # Llama a esta función para asegurar que la tabla de la DB exista
+    create_db_tables()
 
-    # --- Llamar a ensure_header_row_exists_global UNA SOLA VEZ al inicio ---
     try:
         ensure_header_row_exists_global() 
     except Exception as e:
         print(f"FATAL ERROR: Could not ensure Google Sheets header row: {e}")
         import sys
-        sys.exit(1) # Termina la aplicación si el encabezado no se puede establecer
+        sys.exit(1)
 
     port = int(os.environ.get("PORT", 5000))
-    # Para desarrollo local, puedes activar debug=True
     app.run(debug=os.environ.get("FLASK_DEBUG", "False") == "True", host="0.0.0.0", port=port)
+
