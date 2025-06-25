@@ -203,7 +203,7 @@ def update_google_sheets(data):
         eventId = meta.get("eventId", "")
         messageId = meta.get("messageId", "")
         # --- CAMBIO CLAVE 2: Extraer 'conversationId' del webhook data (nivel superior) ---
-        conversation_id = data.get("conversationId", "") # Extraer conversationId
+        conversation_id = reservation_data.get("conversationId", "") # Extraer conversationId
 
         account_id = reservation_data.get("accountId", "")
         guest_id = reservation_data.get("guestId", "")
